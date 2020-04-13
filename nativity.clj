@@ -58,8 +58,8 @@
                        "--initialize-at-build-time "
                        ;; optional native image name override
                        (str "-H:Name=" native-image-name)
-                       " -H:+ReportExceptionStackTraces"]
-           :jvm-opts ["-Dclojure.compiler.direct-linking=true" "-H:+ReportExceptionStackTraces"]
+                       "-H:+ReportExceptionStackTraces"]
+           :jvm-opts ["-Dclojure.compiler.direct-linking=true"]
            :extra-deps
            {'clj.native-image
             {:git/url "https://github.com/taylorwood/clj.native-image.git"
