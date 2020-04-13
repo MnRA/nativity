@@ -14,7 +14,9 @@
     :parse-fn dependency-parser]
    ["-n" "--name FILENAME" "override default file name for the binary (will default to the input file name )"
     :default nil]
-    ["-k" "-keep-files" "keep the generated intermediate files"]
+   ["-k" "-keep-files" "keep the generated intermediate files"]
+   ["-m" "-mode MODE" "Choose the processing mode currently available: implicit, untouched"
+    :default "untouched"]
    ])
 
 (def command-line-input (parse-opts *command-line-args* cli-options))
@@ -91,17 +93,25 @@
 
 (def compile-to-native-command ["clj" "-A:native-image" "--no-fallback"] )
 
-(println "reading file")
-(def main-file (slurp file-path))
 
-(def src-output-path (str "src/" file-name ".clj"))
+(defn generate-with [src-gen-fn]
+  (println "reading file")
+  (def main-file (slurp file-path))
 
-(println "making directory")
-(make-parents src-output-path)
+  (def src-output-path (str "src/" file-name ".clj"))
 
-(println "making modified script-file")
+  (println "making directory")
+  (make-parents src-output-path)
 
-(defn specific-require-generation []
+  (println "making modified script-file")
+  (src-gen-fn)
+  (println "making deps file")
+  (spit "deps.edn" (str deps-file))
+
+  (println "compiling native image")
+  (shell-command compile-to-native-command))
+
+(defn implicit-generation []
   (spit src-output-path
     (str
       (apply list (remove nil?
@@ -109,17 +119,17 @@
           '(:gen-class)
            (specific-dependencies dependency-keys))))
       "(defn -main [& *command-line-args*] " main-file " )"
-  ))
+  )))
 
-  (println "making deps file")
-  (spit "deps.edn" (str deps-file))
-
-  (println "compiling native image")
-  (shell-command compile-to-native-command)
-)
+(defn untouched-generation []
+  (spit src-output-path main-file))
 
 (defn main []
-  (specific-require-generation)
+  (case (:mode options)
+    "implicit" (generate-with implicit-generation)
+    "untouched" (generate-with untouched-generation)
+    (generate-with untouched-generation))
+
   (if-not (:keep-files options)
    (do
      (println "removing source file")
