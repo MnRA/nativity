@@ -14,7 +14,7 @@
     :parse-fn dependency-parser]
    ["-n" "--name FILENAME" "override default file name for the binary (will default to the input file name )"
     :default nil]
-   ["-k" "-keep-files" "keep the generated intermediate files"]
+   ["-c" "-clean" "keep the generated intermediate files"]
    ["-m" "-mode MODE" "Choose the processing mode currently available: implicit, untouched"
     :default "untouched"]
    ])
@@ -130,7 +130,7 @@
     "untouched" (generate-with untouched-generation)
     (generate-with untouched-generation))
 
-  (if-not (:keep-files options)
+  (if (:clean options)
    (do
      (println "removing source file")
      (delete-file src-output-path)
