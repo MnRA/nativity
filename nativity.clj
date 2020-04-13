@@ -1,31 +1,41 @@
 #!/usr/bin/env bb
 
 (ns nativity
-  (:require [clojure.string :refer [split] :as str]
+  (:require [clojure.string :refer [join split split-lines] :as str]
             [clojure.java.io :refer [make-parents delete-file]]
             [clojure.tools.cli :refer [parse-opts]])
   (:import [java.lang ProcessBuilder$Redirect]))
 
 
 (defn dependency-parser [input-string] (map keyword (split input-string #",")))
+(defn slice-parser [input-string]
+  (let [[start end] (map #(Integer/parseInt %) (split input-string #"-"))]
+  [(dec start) end]
+))
+
 (def cli-options
-  [["-d" "--deps LIST" "dependency list ( comma seperated values, example: \"io,str,json,edn\")"
+  [["-d" "--deps LIST" "Specify the dependency list for implicit mode ( comma seperated values, example: \"io,str,json,edn\")"
     :default []
     :parse-fn dependency-parser]
-   ["-n" "--name FILENAME" "override default file name for the binary (will default to the input file name )"
-    :default nil]
-   ["-c" "-clean" "keep the generated intermediate files"]
-   ["-m" "-mode MODE" "Choose the processing mode currently available: implicit, untouched"
+   ["-n" "--name FILENAME" "Override default file name for the binary (will default to the input file name)"]
+   ["-c" "--clean" "Clean up the src and deps.edn files"]
+   ["-m" "--mode MODE" "Choose the processing mode. Currently available: implicit, untouched, directed"
     :default "untouched"]
+   ["" "--no-compile" "Don't run binary compilation step"
+    :default false]
+   ["" "--namespace NAMESPACE-NAME" "If your main function is in a namespace different from your file name you can override with this. It will also use this to name the namespace in implicit mode"]
+   ["-s" "--slice RANGE" "Determine the slice you want to inject into main (Only directed mode)"
+    :default [0, 0]
+    :parse-fn slice-parser]
    ])
 
 (def command-line-input (parse-opts *command-line-args* cli-options))
 (def options (:options command-line-input))
-
+(println command-line-input)
 (def file-path (first (:arguments command-line-input)))
 (def file (-> file-path (split #"/") last))
 (def file-name (-> file (split #"\.") first))
-(def name-space file-name)
+(def name-space (or (:namespace options) file-name))
 (def native-image-name (or (:name options) file-name))
 (def dependency-keys (:deps options))
 
@@ -98,18 +108,22 @@
   (println "reading file")
   (def main-file (slurp file-path))
 
-  (def src-output-path (str "src/" file-name ".clj"))
+  (def src-output-path (str "src/" name-space ".clj"))
 
   (println "making directory")
   (make-parents src-output-path)
 
   (println "making modified script-file")
   (src-gen-fn)
+
   (println "making deps file")
   (spit "deps.edn" (str deps-file))
 
-  (println "compiling native image")
-  (shell-command compile-to-native-command))
+  (if-not (:no-compile options)
+    (do
+      (println "compiling native binary")
+      (shell-command compile-to-native-command))))
+
 
 (defn implicit-generation []
   (spit src-output-path
@@ -124,10 +138,21 @@
 (defn untouched-generation []
   (spit src-output-path main-file))
 
+(defn directed-generation []
+  (let [lines-of-main-file (split-lines main-file)
+        [start-line, stop-line] (:slice options)
+        inject-to-main (take (- stop-line start-line) (drop start-line lines-of-main-file))
+        initial-part (take start-line lines-of-main-file)
+        final-part (drop stop-line lines-of-main-file)
+        entry-point (flatten ["(defn -main [& *command-line-args*] " inject-to-main ")"])]
+   (spit src-output-path (join "\n" (flatten [initial-part entry-point final-part]))))
+  )
+
 (defn main []
   (case (:mode options)
     "implicit" (generate-with implicit-generation)
     "untouched" (generate-with untouched-generation)
+    "directed" (generate-with directed-generation)
     (generate-with untouched-generation))
 
   (if (:clean options)

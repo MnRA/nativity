@@ -51,6 +51,30 @@ This can compile as is because it has:
   * an entry point (`defn -main [& args]`)
   * no in-line require forms (`(require ....)`)
 
+##### Directed
+This mode cuts out parts of your script and puts it into a main function for you:
+for example assume you have this script:
+``` clojure
+#!/usr/bin/env bb
+(ns which
+  (:require [clojure.java.io :as io])
+  (:gen-class))
+
+(defn where [executable]
+  (let [path (System/getenv "PATH")
+        paths (.split path (System/getProperty "path.separator"))]
+    (loop [paths paths]
+      (when-first [p paths]
+        (let [f (io/file p executable)]
+          (if (and (.isFile f)
+                   (.canExecute f))
+            (.getCanonicalPath f)
+            (recur (rest paths))))))))
+
+ (when-first [executable *command-line-args*]
+   (println (where executable)))
+```
+and you run `./nativity.clj which.clj -m directed -w 17-18` it will wrap lines 17 to 18 in the main entry point (in this case those lines would be the last 2 at the end), making a compilable script.
 
 ##### Implicit
 This mode is for when you made a script using the implicit requires that babashka has for one-liners.
@@ -74,8 +98,17 @@ for example:
 This one will require implicit mode and so it should be run `./nativity which.clj -m implicit -d io` (look below to understand the `-d` flag)
 
 ### Other Options
-
-#### Import require specific things for implicit mode
+``` shellsession
+Short     Long                    Default               Description
+ -d,   --deps LIST                  []         Specify the dependency list for implicit mode (comma separated values, example: "io,str,json,edn")
+ -n,   --name FILENAME                         Override default file name for the binary (will default to the input file name )
+ -c,   --clean                                 Clean up the src and deps.edn files
+ -m,   --mode MODE               untouched     Choose the processing mode. Currently available: implicit, untouched
+       --no-compile                            Don't run binary compilation step
+       --namespace NAMESPACE-NAME              If your main function is in a namespace different from your file name you can override with this. It will also use this to name the namespace in implicit mode
+ -w,   --wrap RANGE                [0 0]       Determine the lines you want to want to wrap with main (Only directed mode)
+```
+#### Require specific things for implicit mode
 You can specify which of the built in bb dependencies to require by using the `./nativity.clj path/to/script -d io,str,json`.
 If you use `-d all` it will include all of them.
 
