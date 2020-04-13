@@ -55,10 +55,11 @@
        'org.clojure/data.csv {:mvn/version "1.0.0"}}
  :aliases {:native-image
           {:main-opts [(str "-m clj.native-image " name-space)
-                       "--initialize-at-build-time"
+                       "--initialize-at-build-time "
                        ;; optional native image name override
-                       (str "-H:Name=" native-image-name)]
-           :jvm-opts ["-Dclojure.compiler.direct-linking=true"]
+                       (str "-H:Name=" native-image-name)
+                       " -H:+ReportExceptionStackTraces"]
+           :jvm-opts ["-Dclojure.compiler.direct-linking=true" "-H:+ReportExceptionStackTraces"]
            :extra-deps
            {'clj.native-image
             {:git/url "https://github.com/taylorwood/clj.native-image.git"
