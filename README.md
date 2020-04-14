@@ -41,7 +41,7 @@ for example:
   (when-first [executable args]
     (println (where executable))))
 
-(when (find-ns 'babashka.classpath) ;; we're running as a script
+(when-not (System/getProperty "babashka.main")
   (apply -main *command-line-args*))
 ```
 This can compile as is because it has:
