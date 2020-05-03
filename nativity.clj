@@ -24,21 +24,10 @@
    ["" "--no-compile" "Don't run binary compilation step"
     :default false]
    ["" "--namespace NAMESPACE-NAME" "If your main function is in a namespace different from your file name you can override with this. It will also use this to name the namespace in implicit mode"]
-   ["-s" "--slice RANGE" "Determine the slice you want to inject into main (Only directed mode)"
+   ["-w" "--wrap RANGE" "Determine the lines you want to want to wrap with main (Only directed mode)"
     :default [0, 0]
     :parse-fn slice-parser]
    ])
-
-(def command-line-input (parse-opts *command-line-args* cli-options))
-(def options (:options command-line-input))
-(println command-line-input)
-(def file-path (first (:arguments command-line-input)))
-(def file (-> file-path (split #"/") last))
-(def file-name (-> file (split #"\.") first))
-(def name-space (or (:namespace options) file-name))
-(def native-image-name (or (:name options) file-name))
-(def dependency-keys (:deps options))
-
 
 ;shamelessly copied
 (defn- shell-command
@@ -57,7 +46,7 @@
        (throw (ex-info "Got non-zero exit code" {:status exit-code})))
      {:exit exit-code})))
 
-(def deps-file
+(defn generate-deps-file [name-space native-image-name]
  {:deps {'cheshire {:mvn/version "5.10.0"}
        'org.clojure/tools.cli {:mvn/version "1.0.194"}
        'org.clojure/clojure {:mvn/version "1.10.2-alpha1"}
@@ -104,62 +93,71 @@
 (def compile-to-native-command ["clj" "-A:native-image" "--no-fallback"] )
 
 
-(defn generate-with [src-gen-fn]
+(defn generate-with [src-gen-fn {:keys [file-path name-space deps-file no-compile src-output-path] :as options}]
   (println "reading file")
-  (def main-file (slurp file-path))
+  (let [main-file (slurp file-path)]
+    (println "making directory")
+    (make-parents src-output-path)
 
-  (def src-output-path (str "src/" name-space ".clj"))
+    (println "making modified script-file")
+    ; (println (src-gen-fn main-file options))
+    (spit src-output-path (src-gen-fn main-file options))
 
-  (println "making directory")
-  (make-parents src-output-path)
+    (println "making deps file")
+    (spit "deps.edn" (str deps-file))
 
-  (println "making modified script-file")
-  (src-gen-fn)
-
-  (println "making deps file")
-  (spit "deps.edn" (str deps-file))
-
-  (if-not (:no-compile options)
-    (do
-      (println "compiling native binary")
-      (shell-command compile-to-native-command))))
+    (if-not (:no-compile options)
+      (do
+        (println "compiling native binary")
+        (shell-command compile-to-native-command)))))
 
 
-(defn implicit-generation []
-  (spit src-output-path
-    (str
-      (apply list (remove nil?
-        (list 'ns (symbol name-space)
-          '(:gen-class)
-           (specific-dependencies dependency-keys))))
-      "(defn -main [& *command-line-args*] " main-file " )"
-  )))
+(defn implicit-generation [main-file {:keys [name-space dependency-keys]}]
+  (str
+    (apply list (remove nil?
+      (list 'ns (symbol name-space)
+        '(:gen-class)
+         (specific-dependencies dependency-keys))))
+    "(defn -main [& *command-line-args*] " main-file " )"
+  ))
 
-(defn untouched-generation []
-  (spit src-output-path main-file))
+(defn untouched-generation [main-file _] main-file)
 
-(defn directed-generation []
+(defn directed-generation [main-file {wrap :wrap}]
   (let [lines-of-main-file (split-lines main-file)
-        [start-line, stop-line] (:slice options)
+        [start-line, stop-line] wrap
         inject-to-main (take (- stop-line start-line) (drop start-line lines-of-main-file))
         initial-part (take start-line lines-of-main-file)
         final-part (drop stop-line lines-of-main-file)
         entry-point (flatten ["(defn -main [& *command-line-args*] " inject-to-main ")"])]
-   (spit src-output-path (join "\n" (flatten [initial-part entry-point final-part]))))
+   (join "\n" (flatten [initial-part entry-point final-part])))
   )
 
-(defn main []
+(defn -main [& *command-line-args*]
+  (let [command-line-input (parse-opts *command-line-args* cli-options)
+        options (:options command-line-input)
+        file-path (first (:arguments command-line-input))
+        file (-> file-path (split #"/") last)
+        file-name (-> file (split #"\.") first)
+        name-space (or (:namespace options) file-name)
+        native-image-name (or (:name options) file-name)
+        dependency-keys (:deps options)
+        deps-file (generate-deps-file name-space native-image-name)
+        src-output-path (str "src/" name-space ".clj")
+        options (merge options {:name-space name-space :file-path file-path :deps-file deps-file :src-output-path src-output-path})]
+        ; (println options)
   (case (:mode options)
-    "implicit" (generate-with implicit-generation)
-    "untouched" (generate-with untouched-generation)
-    "directed" (generate-with directed-generation)
-    (generate-with untouched-generation))
+    "implicit" (generate-with implicit-generation options)
+    "untouched" (generate-with untouched-generation options)
+    "directed" (generate-with directed-generation options)
+    (generate-with untouched-generation options))
 
   (if (:clean options)
    (do
      (println "removing source file")
      (delete-file src-output-path)
      (println "removing deps.edn file")
-     (delete-file "deps.edn"))))
+     (delete-file "deps.edn")))))
 
-(main)
+(when-not (System/getProperty "babashka.main")
+  (apply -main *command-line-args*))
