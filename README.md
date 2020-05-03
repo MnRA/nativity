@@ -42,7 +42,7 @@ for example:
     (println (where executable))))
 
 (when-not (System/getProperty "babashka.main")
-  (apply -main *command-line-args*))
+  (when (find-ns 'babashka.classpath) (apply -main *command-line-args*)))
 ```
 This can compile as is because it has:
   * Ns form with :gen-class and explicit requires (`(ns which
