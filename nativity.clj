@@ -3,15 +3,19 @@
 (ns nativity
   (:require [clojure.string :refer [join split split-lines] :as str]
             [clojure.java.io :refer [make-parents delete-file]]
-            [clojure.tools.cli :refer [parse-opts]])
-  (:import [java.lang ProcessBuilder$Redirect]))
+            [clojure.tools.cli :as cli])
+  (:import [java.lang ProcessBuilder$Redirect])
+  (:gen-class))
 
 
 (defn dependency-parser [input-string] (map keyword (split input-string #",")))
+
+
 (defn slice-parser [input-string]
   (let [[start end] (map #(Integer/parseInt %) (split input-string #"-"))]
   [(dec start) end]
 ))
+
 
 (def cli-options
   [["-d" "--deps LIST" "Specify the dependency list for implicit mode ( comma seperated values, example: \"io,str,json,edn\")"
@@ -23,11 +27,11 @@
     :default "untouched"]
    ["" "--no-compile" "Don't run binary compilation step"
     :default false]
-   ["" "--namespace NAMESPACE-NAME" "If your main function is in a namespace different from your file name you can override with this. It will also use this to name the namespace in implicit mode"]
+   ["-j" "--namespace NAMESPACE" "If your main function is in a namespace different from your file name you can override with this. It will also use this to name the namespace in implicit mode"]
    ["-w" "--wrap RANGE" "Determine the lines you want to want to wrap with main (Only directed mode)"
     :default [0, 0]
     :parse-fn slice-parser]
-   ])
+  ])
 
 ;shamelessly copied
 (defn- shell-command
@@ -45,6 +49,7 @@
                 (not (zero? exit-code)))
        (throw (ex-info "Got non-zero exit code" {:status exit-code})))
      {:exit exit-code})))
+
 
 (defn generate-deps-file [name-space native-image-name]
  {:deps {'cheshire {:mvn/version "5.10.0"}
@@ -90,6 +95,7 @@
     (empty? keylist) nil
     :else (conj (vals (select-keys dependency-map keylist)) :require)))
 
+
 (def compile-to-native-command ["clj" "-A:native-image" "--no-fallback"] )
 
 
@@ -121,7 +127,9 @@
     "(defn -main [& *command-line-args*] " main-file " )"
   ))
 
+
 (defn untouched-generation [main-file _] main-file)
+
 
 (defn directed-generation [main-file {wrap :wrap}]
   (let [lines-of-main-file (split-lines main-file)
@@ -133,8 +141,9 @@
    (join "\n" (flatten [initial-part entry-point final-part])))
   )
 
+
 (defn -main [& *command-line-args*]
-  (let [command-line-input (parse-opts *command-line-args* cli-options)
+  (let [command-line-input (cli/parse-opts *command-line-args* cli-options)
         options (:options command-line-input)
         file-path (first (:arguments command-line-input))
         file (-> file-path (split #"/") last)
@@ -159,5 +168,6 @@
      (println "removing deps.edn file")
      (delete-file "deps.edn")))))
 
+
 (when-not (System/getProperty "babashka.main")
-  (apply -main *command-line-args*))
+  (when (find-ns 'babashka.classpath) (apply -main *command-line-args*)))
